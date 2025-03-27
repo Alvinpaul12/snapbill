@@ -35,20 +35,41 @@ document.getElementById('scanBtn').addEventListener('click', async () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
+    const uploadStatus = document.getElementById('uploadStatus');
+    
     input.onchange = async (e) => {
         const file = e.target.files[0];
+        if (!file) return;
+
         const formData = new FormData();
         formData.append('image', file);
         
-        const response = await fetch('http://localhost:5000/scan-bill', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const data = await response.json();
-        items = [...items, ...data.items];
-        updateItemList();
+        try {
+            uploadStatus.textContent = 'Processing image...';
+            uploadStatus.className = '';
+            
+            const response = await fetch('http://localhost:5000/scan-bill', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            if (data.items && data.items.length > 0) {
+                items = [...items, ...data.items];
+                updateItemList();
+                uploadStatus.textContent = 'Bill processed successfully!';
+                uploadStatus.className = 'success';
+            } else {
+                uploadStatus.textContent = 'No items found in the bill';
+                uploadStatus.className = 'error';
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            uploadStatus.textContent = 'Error processing the bill';
+            uploadStatus.className = 'error';
+        }
     };
+    
     input.click();
 });
 
