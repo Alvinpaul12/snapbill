@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bill Splitting App</title>
+    <link rel="stylesheet" href="static/css/style.css">
+    <style>
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        .item-list { margin: 20px 0; }
+        .person-list { margin: 20px 0; }
+        .item-container {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+        }
+        .item-assignment {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        select[multiple] {
+            min-width: 200px;
+            min-height: 100px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Snapbill</h1>
+        </header>
+
+        <main>
+            <!-- Add Items Section -->
+            <section id="itemInput">
+                <h2>Add Items</h2>
+                <div class="input-group">
+                    <input type="text" id="itemName" placeholder="Item name">
+                    <input type="number" id="itemPrice" placeholder="Price" step="0.01">
+                    <input type="number" id="itemQuantity" placeholder="Quantity" value="1" min="1">
+                    <button id="addItem">Add Item</button>
+                </div>
+                <div id="itemList"></div>
+            </section>
+
+            <!-- Single People Section -->
+            <section id="peopleSection">
+                <h2>Add People</h2>
+                <div class="input-group">
+                    <input type="text" id="personName" placeholder="Person name">
+                    <button id="addPerson">Add Person</button>
+                </div>
+                <ul id="peopleList"></ul>
+            </section>
+
+            <!-- Assignment Section -->
+            <section id="assignmentSection">
+                <h2>Assign Items</h2>
+                <div id="assignments"></div>
+                <button id="calculateSplit">Calculate Split</button>
+            </section>
+
+            <!-- Bill Summary Section -->
+            <section id="summary">
+                <h2>Bill Summary</h2>
+                <div id="splitResults"></div>
+            </section>
+        </main>
+    </div>
+    <script src="static/js/firebase-config.js"></script>
+    <script src="static/js/app.js"></script>
+    <script>
+        let items = [];
+        let persons = [];
+
+        async function scanBill() {
+            const fileInput = document.getElementById('billImage');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('image', file);
+
+            const response = await fetch('/scan-bill', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            items = data.items;
+            displayItems();
+        }
+
+        function displayItems() {
+            const itemsList = document.getElementById('itemsList');
+            itemsList.innerHTML = items.map((item, index) => `
+                <div class="item-container">
+                    <div class="item-assignment">
+                        <span>${item.name} - $${item.price} x ${item.quantity}</span>
+                        <select multiple id="select-${index}" onchange="assignPersons(${index})">
+                            ${persons.map(person => `
+                                <option value="${person}" 
+                                    ${item.assigned_to.includes(person) ? 'selected' : ''}>
+                                    ${person}
+                                </option>
+                            `).join('')}
+                        </select>
+                    </div>
+                </div>
+            `).join('');
+            updateBillSummary();
+        }
+
+        async function assignPersons(itemIndex) {
+            const select = document.getElementById(`select-${itemIndex}`);
+            const selectedPersons = Array.from(select.selectedOptions).map(option => option.value);
+            
+            const response = await fetch('/assign-item', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    itemIndex: itemIndex,
+                    selectedPersons: selectedPersons
+                })
+            });
+            
+            const data = await response.json();
+            if (data.status === 'success') {
+                items[itemIndex].assigned_to = selectedPersons;
+                updateBillSummary();
+            }
+        }
+
+        function updateBillSummary() {
+            const summary = document.getElementById('billSummary');
+            const totals = {};
+            
+            persons.forEach(person => totals[person] = 0);
+            
+            items.forEach(item => {
+                if (item.assigned_to.length > 0) {
+                    const splitAmount = (item.price * item.quantity) / item.assigned_to.length;
+                    item.assigned_to.forEach(person => {
+                        totals[person] += splitAmount;
+                    });
+                }
+            });
+            
+            summary.innerHTML = `
+                <h3>Bill Summary</h3>
+                ${Object.entries(totals).map(([person, amount]) => `
+                    <div>${person}: $${amount.toFixed(2)}</div>
+                `).join('')}
+            `;
+        }
+
+        async function addPerson() {
+            const nameInput = document.getElementById('personName');
+            const name = nameInput.value.trim();
+            if (!name) return;
+
+            const response = await fetch('/add-person', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name})
+            });
+            const data = await response.json();
+            persons = data.persons;
+            displayPersons();
+            nameInput.value = '';
+        }
+
+        function displayPersons() {
+            const list = document.getElementById('personsList');
+            list.innerHTML = '';
+            persons.forEach(person => {
+                const li = document.createElement('li');
+                li.textContent = person;
+                list.appendChild(li);
+            });
+            displayItems();
+        }
+
+        // Load existing persons on page load
+        fetch('/get-persons').then(r => r.json()).then(data => {
+            persons = data.persons;
+            displayPersons();
+        });
+    </script>
+</body>
+</html>
